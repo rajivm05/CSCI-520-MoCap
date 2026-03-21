@@ -1,0 +1,60 @@
+# =========================
+# Build directories
+# =========================
+build/
+bin/
+out/
+
+# =========================
+# CMake files
+# =========================
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# =========================
+# Compiled binaries
+# =========================
+*.out
+*.exe
+*.app
+
+# Linux / Unix binaries (no extension)
+# (Add specific names if needed)
+wcServer
+wcClient
+
+# =========================
+# Object files
+# =========================
+*.o
+*.obj
+
+# =========================
+# Libraries
+# =========================
+*.a
+*.so
+*.dylib
+
+# =========================
+# Debug / profiling
+# =========================
+*.dSYM/
+*.log
+
+# =========================
+# Editor / IDE files
+# =========================
+.vscode/
+*.swp
+*.swo
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+
+CONTEXT.md
