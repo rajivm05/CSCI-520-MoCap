@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
+#include <vector>
 #include "motion.h"
 #include "interpolator.h"
 #include "types.h"
@@ -427,5 +428,251 @@ Quaternion<double> Interpolator::DeCasteljauQuaternion(double t, Quaternion<doub
 
   // 2 -> 1
   return Slerp(t, slerp012, slerp123);
+}
+
+// ============================================================
+// NON-UNIFORM KEYFRAME INTERPOLATION
+// The keyframes vector holds sorted frame indices at irregular spacings.
+// Each segment's local parameter t is computed from the variable gap width.
+// ============================================================
+
+void Interpolator::InterpolateNonUniform(Motion * pInputMotion, Motion ** pOutputMotion, std::vector<int> & keyframes)
+{
+  *pOutputMotion = new Motion(pInputMotion->GetNumFrames(), pInputMotion->GetSkeleton());
+
+  if ((m_InterpolationType == LINEAR) && (m_AngleRepresentation == EULER))
+    LinearEulerNonUniform(pInputMotion, *pOutputMotion, keyframes);
+  else if ((m_InterpolationType == LINEAR) && (m_AngleRepresentation == QUATERNION))
+    LinearQuaternionNonUniform(pInputMotion, *pOutputMotion, keyframes);
+  else if ((m_InterpolationType == BEZIER) && (m_AngleRepresentation == EULER))
+    BezierEulerNonUniform(pInputMotion, *pOutputMotion, keyframes);
+  else if ((m_InterpolationType == BEZIER) && (m_AngleRepresentation == QUATERNION))
+    BezierQuaternionNonUniform(pInputMotion, *pOutputMotion, keyframes);
+  else
+  {
+    printf("Error: unknown interpolation / angle representation type.\n");
+    exit(1);
+  }
+}
+
+void Interpolator::LinearEulerNonUniform(Motion * pInputMotion, Motion * pOutputMotion, std::vector<int> & keyframes)
+{
+  int numFrames = pInputMotion->GetNumFrames();
+  int numKeys = (int)keyframes.size();
+
+  // walk through consecutive keyframe pairs
+  for (int ki = 0; ki + 1 < numKeys; ki++)
+  {
+    int idxA = keyframes[ki];
+    int idxB = keyframes[ki + 1];
+
+    Posture * posA = pInputMotion->GetPosture(idxA);
+    Posture * posB = pInputMotion->GetPosture(idxB);
+
+    pOutputMotion->SetPosture(idxA, *posA);
+    pOutputMotion->SetPosture(idxB, *posB);
+
+    int gap = idxB - idxA;
+
+    // fill the frames between the two keyframes
+    for (int offset = 1; offset < gap; offset++)
+    {
+      double localT = (double)offset / gap;
+      Posture blended;
+
+      blended.root_pos = posA->root_pos * (1.0 - localT) + posB->root_pos * localT;
+
+      for (int b = 0; b < MAX_BONES_IN_ASF_FILE; b++)
+        blended.bone_rotation[b] = posA->bone_rotation[b] * (1.0 - localT) + posB->bone_rotation[b] * localT;
+
+      pOutputMotion->SetPosture(idxA + offset, blended);
+    }
+  }
+
+  // copy any trailing frames after the last keyframe
+  int lastKey = keyframes.back();
+  for (int f = lastKey + 1; f < numFrames; f++)
+    pOutputMotion->SetPosture(f, *(pInputMotion->GetPosture(f)));
+}
+
+void Interpolator::BezierEulerNonUniform(Motion * pInputMotion, Motion * pOutputMotion, std::vector<int> & keyframes)
+{
+  int numFrames = pInputMotion->GetNumFrames();
+  int numKeys = (int)keyframes.size();
+
+  for (int ki = 0; ki + 1 < numKeys; ki++)
+  {
+    int idxA = keyframes[ki];
+    int idxB = keyframes[ki + 1];
+    int gap = idxB - idxA;
+
+    Posture * posA = pInputMotion->GetPosture(idxA);
+    Posture * posB = pInputMotion->GetPosture(idxB);
+
+    // look up neighbors for tangent computation, clamping at boundaries
+    Posture * posBefore = (ki > 0) ? pInputMotion->GetPosture(keyframes[ki - 1]) : posA;
+    Posture * posAfter  = (ki + 2 < numKeys) ? pInputMotion->GetPosture(keyframes[ki + 2]) : posB;
+
+    pOutputMotion->SetPosture(idxA, *posA);
+    pOutputMotion->SetPosture(idxB, *posB);
+
+    // catmull-rom tangent with 1/3 push: handle = point +/- (successor - predecessor) / 6
+    vector handleOutRoot = posA->root_pos + (posB->root_pos - posBefore->root_pos) / 6.0;
+    vector handleInRoot  = posB->root_pos - (posAfter->root_pos - posA->root_pos) / 6.0;
+
+    vector handleOutBone[MAX_BONES_IN_ASF_FILE];
+    vector handleInBone[MAX_BONES_IN_ASF_FILE];
+    for (int b = 0; b < MAX_BONES_IN_ASF_FILE; b++)
+    {
+      handleOutBone[b] = posA->bone_rotation[b] +
+        (posB->bone_rotation[b] - posBefore->bone_rotation[b]) / 6.0;
+      handleInBone[b] = posB->bone_rotation[b] -
+        (posAfter->bone_rotation[b] - posA->bone_rotation[b]) / 6.0;
+    }
+
+    for (int offset = 1; offset < gap; offset++)
+    {
+      double localT = (double)offset / gap;
+      Posture blended;
+
+      blended.root_pos = DeCasteljauEuler(localT,
+        posA->root_pos, handleOutRoot, handleInRoot, posB->root_pos);
+
+      for (int b = 0; b < MAX_BONES_IN_ASF_FILE; b++)
+        blended.bone_rotation[b] = DeCasteljauEuler(localT,
+          posA->bone_rotation[b], handleOutBone[b], handleInBone[b], posB->bone_rotation[b]);
+
+      pOutputMotion->SetPosture(idxA + offset, blended);
+    }
+  }
+
+  int lastKey = keyframes.back();
+  for (int f = lastKey + 1; f < numFrames; f++)
+    pOutputMotion->SetPosture(f, *(pInputMotion->GetPosture(f)));
+}
+
+void Interpolator::LinearQuaternionNonUniform(Motion * pInputMotion, Motion * pOutputMotion, std::vector<int> & keyframes)
+{
+  int numFrames = pInputMotion->GetNumFrames();
+  int numKeys = (int)keyframes.size();
+
+  for (int ki = 0; ki + 1 < numKeys; ki++)
+  {
+    int idxA = keyframes[ki];
+    int idxB = keyframes[ki + 1];
+    int gap = idxB - idxA;
+
+    Posture * posA = pInputMotion->GetPosture(idxA);
+    Posture * posB = pInputMotion->GetPosture(idxB);
+
+    pOutputMotion->SetPosture(idxA, *posA);
+    pOutputMotion->SetPosture(idxB, *posB);
+
+    // preconvert bone rotations to quaternions for this segment
+    Quaternion<double> quatA[MAX_BONES_IN_ASF_FILE];
+    Quaternion<double> quatB[MAX_BONES_IN_ASF_FILE];
+    for (int b = 0; b < MAX_BONES_IN_ASF_FILE; b++)
+    {
+      Euler2Quaternion(posA->bone_rotation[b].p, quatA[b]);
+      Euler2Quaternion(posB->bone_rotation[b].p, quatB[b]);
+    }
+
+    for (int offset = 1; offset < gap; offset++)
+    {
+      double localT = (double)offset / gap;
+      Posture blended;
+
+      // root translation: linear euler (quaternions only for rotations)
+      blended.root_pos = posA->root_pos * (1.0 - localT) + posB->root_pos * localT;
+
+      for (int b = 0; b < MAX_BONES_IN_ASF_FILE; b++)
+      {
+        Quaternion<double> interpQ = Slerp(localT, quatA[b], quatB[b]);
+        Quaternion2Euler(interpQ, blended.bone_rotation[b].p);
+      }
+
+      pOutputMotion->SetPosture(idxA + offset, blended);
+    }
+  }
+
+  int lastKey = keyframes.back();
+  for (int f = lastKey + 1; f < numFrames; f++)
+    pOutputMotion->SetPosture(f, *(pInputMotion->GetPosture(f)));
+}
+
+void Interpolator::BezierQuaternionNonUniform(Motion * pInputMotion, Motion * pOutputMotion, std::vector<int> & keyframes)
+{
+  int numFrames = pInputMotion->GetNumFrames();
+  int numKeys = (int)keyframes.size();
+
+  for (int ki = 0; ki + 1 < numKeys; ki++)
+  {
+    int idxA = keyframes[ki];
+    int idxB = keyframes[ki + 1];
+    int gap = idxB - idxA;
+
+    Posture * posA = pInputMotion->GetPosture(idxA);
+    Posture * posB = pInputMotion->GetPosture(idxB);
+
+    Posture * posBefore = (ki > 0) ? pInputMotion->GetPosture(keyframes[ki - 1]) : posA;
+    Posture * posAfter  = (ki + 2 < numKeys) ? pInputMotion->GetPosture(keyframes[ki + 2]) : posB;
+
+    pOutputMotion->SetPosture(idxA, *posA);
+    pOutputMotion->SetPosture(idxB, *posB);
+
+    // root translation: bezier euler handles
+    vector handleOutRoot = posA->root_pos + (posB->root_pos - posBefore->root_pos) / 6.0;
+    vector handleInRoot  = posB->root_pos - (posAfter->root_pos - posA->root_pos) / 6.0;
+
+    // bone rotations: quaternion bezier control points via Shoemake's construction
+    Quaternion<double> quatA[MAX_BONES_IN_ASF_FILE];
+    Quaternion<double> quatB[MAX_BONES_IN_ASF_FILE];
+    Quaternion<double> handleOutQ[MAX_BONES_IN_ASF_FILE];
+    Quaternion<double> handleInQ[MAX_BONES_IN_ASF_FILE];
+
+    for (int b = 0; b < MAX_BONES_IN_ASF_FILE; b++)
+    {
+      Quaternion<double> qBef, qA_, qB_, qAft;
+      Euler2Quaternion(posBefore->bone_rotation[b].p, qBef);
+      Euler2Quaternion(posA->bone_rotation[b].p, qA_);
+      Euler2Quaternion(posB->bone_rotation[b].p, qB_);
+      Euler2Quaternion(posAfter->bone_rotation[b].p, qAft);
+
+      // outgoing handle at idxA: reflect predecessor through current, slerp halfway, compress to 1/3
+      Quaternion<double> mirrorBef = Double(qBef, qA_);
+      Quaternion<double> midOut = Slerp(0.5, mirrorBef, qB_);
+      handleOutQ[b] = Slerp(1.0 / 3.0, qA_, midOut);
+
+      // incoming handle at idxB: reflect successor-neighbor through next, slerp halfway, compress to 1/3
+      Quaternion<double> mirrorAft = Double(qAft, qB_);
+      Quaternion<double> midIn = Slerp(0.5, mirrorAft, qA_);
+      handleInQ[b] = Slerp(1.0 / 3.0, qB_, midIn);
+
+      quatA[b] = qA_;
+      quatB[b] = qB_;
+    }
+
+    for (int offset = 1; offset < gap; offset++)
+    {
+      double localT = (double)offset / gap;
+      Posture blended;
+
+      blended.root_pos = DeCasteljauEuler(localT,
+        posA->root_pos, handleOutRoot, handleInRoot, posB->root_pos);
+
+      for (int b = 0; b < MAX_BONES_IN_ASF_FILE; b++)
+      {
+        Quaternion<double> curveQ = DeCasteljauQuaternion(localT,
+          quatA[b], handleOutQ[b], handleInQ[b], quatB[b]);
+        Quaternion2Euler(curveQ, blended.bone_rotation[b].p);
+      }
+
+      pOutputMotion->SetPosture(idxA + offset, blended);
+    }
+  }
+
+  int lastKey = keyframes.back();
+  for (int f = lastKey + 1; f < numFrames; f++)
+    pOutputMotion->SetPosture(f, *(pInputMotion->GetPosture(f)));
 }
 

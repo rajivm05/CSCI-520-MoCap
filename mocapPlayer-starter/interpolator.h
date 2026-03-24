@@ -11,6 +11,7 @@
 #ifndef _INTERPOLATOR_H
 #define _INTERPOLATOR_H
 
+#include <vector>
 #include "motion.h"
 #include "quaternion.h"
 
@@ -39,6 +40,9 @@ public:
   //Create interpolated motion and store it into pOutputMotion (which will also be allocated)
   void Interpolate(Motion * pInputMotion, Motion ** pOutputMotion, int N);
 
+  // non-uniform keyframe variant: keyframes specified as a sorted list of frame indices
+  void InterpolateNonUniform(Motion * pInputMotion, Motion ** pOutputMotion, std::vector<int> & keyframes);
+
 protected:
   InterpolationType m_InterpolationType; //Interpolation type (Linear, Bezier)
   AngleRepresentation m_AngleRepresentation; //Angle representation (Euler, Quaternion)
@@ -63,6 +67,12 @@ protected:
   // Bezier spline evaluation
   vector DeCasteljauEuler(double t, vector p0, vector p1, vector p2, vector p3); // evaluate Bezier spline at t, using DeCasteljau construction, vector version
   Quaternion<double> DeCasteljauQuaternion(double t, Quaternion<double> p0, Quaternion<double> p1, Quaternion<double> p2, Quaternion<double> p3); // evaluate Bezier spline at t, using DeCasteljau construction, Quaternion version
+
+  // non-uniform keyframe interpolation methods
+  void LinearEulerNonUniform(Motion * pInputMotion, Motion * pOutputMotion, std::vector<int> & keyframes);
+  void BezierEulerNonUniform(Motion * pInputMotion, Motion * pOutputMotion, std::vector<int> & keyframes);
+  void LinearQuaternionNonUniform(Motion * pInputMotion, Motion * pOutputMotion, std::vector<int> & keyframes);
+  void BezierQuaternionNonUniform(Motion * pInputMotion, Motion * pOutputMotion, std::vector<int> & keyframes);
 
 };
 
