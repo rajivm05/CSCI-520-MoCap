@@ -136,25 +136,25 @@ All graphs use `131_04-dance.amc` with N=20. Each plot shows three curves: the i
 
 ### Graph 1: Linear Euler vs Bezier Euler — lfemur X-rotation, frames 600-800
 
-![Graph 1](output/graph1_le_vs_be.png)
+![Graph 1](mocapPlayer-starter/output/graph1_le_vs_be.png)
 
 Both methods track the input closely in this smooth, periodic region. Bezier Euler is slightly smoother between keyframes, while Linear Euler shows subtle kinks at keyframe boundaries where the slope changes abruptly. The differences are minor because this part of the dance has relatively gentle femur rotation.
 
 ### Graph 2: SLERP vs Bezier SLERP — lfemur X-rotation, frames 600-800
 
-![Graph 2](output/graph2_lq_vs_bq.png)
+![Graph 2](mocapPlayer-starter/output/graph2_lq_vs_bq.png)
 
 Both quaternion methods follow the input very closely — the curves are nearly indistinguishable after converting back to Euler angles for plotting. Bezier SLERP provides marginally smoother keyframe transitions, but for this joint and frame range, the improvement is subtle.
 
 ### Graph 3: Linear Euler vs SLERP Quaternion — root Z-rotation, frames 200-500
 
-![Graph 3](output/graph3_le_vs_lq.png)
+![Graph 3](mocapPlayer-starter/output/graph3_le_vs_lq.png)
 
 This is where the methods start to diverge noticeably. Around frames 480-500, the root undergoes rapid Z-rotation changes. Linear Euler takes a straight-line path through angle space, which doesn't necessarily correspond to the shortest rotation. SLERP, working on the quaternion hypersphere, always follows the geodesic and stays closer to the input in these fast-changing regions.
 
 ### Graph 4: Bezier Euler vs Bezier SLERP — root Z-rotation, frames 200-500
 
-![Graph 4](output/graph4_be_vs_bq.png)
+![Graph 4](mocapPlayer-starter/output/graph4_be_vs_bq.png)
 
 A similar story to Graph 3. Both Bezier variants handle smooth sections well, but near the rapid orientation changes, Bezier SLERP maintains its advantage through quaternion-space interpolation. Bezier Euler can overshoot or oscillate in regions where the Euler angle parameterization becomes ill-conditioned.
 
@@ -166,21 +166,15 @@ All videos use `135_06-martialArts.amc` with N=40. Input motion is shown in red,
 
 ### Video 1: Input + Bezier Euler
 
-https://github.com/user-attachments/assets/video1_be.mp4
-
-<video src="output/video1_be.mp4" width="640" controls></video>
+[video1_be.mp4](mocapPlayer-starter/output/video1_be.mp4)
 
 ### Video 2: Input + SLERP Quaternion
 
-https://github.com/user-attachments/assets/video2_lq.mp4
-
-<video src="output/video2_lq.mp4" width="640" controls></video>
+[video2_lq.mp4](mocapPlayer-starter/output/video2_lq.mp4)
 
 ### Video 3: Input + Bezier SLERP Quaternion
 
-https://github.com/user-attachments/assets/video3_bq.mp4
-
-<video src="output/video3_bq.mp4" width="640" controls></video>
+[video3_bq.mp4](mocapPlayer-starter/output/video3_bq.mp4)
 
 Across all three videos, the two skeletons align closely during slower movements. The real differences show up during fast kicks and arm strikes, where 40 consecutive frames of motion are missing. SLERP (Video 2) generally tracks the original most closely in these challenging sections.
 
@@ -211,7 +205,7 @@ Error is measured using rotation-matrix angular distance — a representation-in
 
 SLERP Quaternion consistently achieves the lowest overall RMSE.
 
-![Overall RMSE](output/error_overall_rmse.png)
+![Overall RMSE](mocapPlayer-starter/output/error_overall_rmse.png)
 
 ### Strengths and Weaknesses
 
@@ -227,13 +221,13 @@ SLERP Quaternion consistently achieves the lowest overall RMSE.
 
 Error is heavily concentrated in extremity joints. The thumb, hand, foot, and toe bones dominate the top-10 worst-error lists across all methods — these joints undergo rapid, small-amplitude articulations that are poorly captured when keyframes are sparse. Proximal joints are reconstructed much more accurately.
 
-![Per-Bone Error](output/error_per_bone.png)
+![Per-Bone Error](mocapPlayer-starter/output/error_per_bone.png)
 
 ### Temporal Error Distribution
 
 Errors spike at specific frames where the motion undergoes rapid changes. For dance, the worst region is around frame 137. For martial arts, frame 1796 is the worst across all methods — likely a fast kick or punch. Between these spikes, all methods perform comparably.
 
-![Per-Frame Error](output/error_per_frame.png)
+![Per-Frame Error](mocapPlayer-starter/output/error_per_frame.png)
 
 ### Effect of N and Motion Type
 
@@ -291,19 +285,19 @@ The adaptive selection performed worse than uniform sampling across all methods 
 
 Uniform sampling provides a coverage guarantee — no gap ever exceeds N+1 frames — which turns out to be more valuable than concentrating keyframes where motion is most complex. A practical adaptive scheme would need a maximum gap constraint.
 
-![Gap Distribution](output/compare_gap_distribution.png)
+![Gap Distribution](mocapPlayer-starter/output/compare_gap_distribution.png)
 
-![Uniform vs Adaptive RMSE](output/compare_overall_rmse_bars.png)
+![Uniform vs Adaptive RMSE](mocapPlayer-starter/output/compare_overall_rmse_bars.png)
 
 #### Non-Uniform Interpolation Videos
 
 **Dance — Bezier SLERP with adaptive keyframes:**
 
-<video src="output/video_dance_adaptive_bq.mp4" width="640" controls></video>
+[video_dance_adaptive_bq.mp4](mocapPlayer-starter/output/video_dance_adaptive_bq.mp4)
 
 **Martial Arts — Bezier SLERP with adaptive keyframes:**
 
-<video src="output/video_martial_adaptive_bq.mp4" width="640" controls></video>
+[video_martial_adaptive_bq.mp4](mocapPlayer-starter/output/video_martial_adaptive_bq.mp4)
 
 ---
 
