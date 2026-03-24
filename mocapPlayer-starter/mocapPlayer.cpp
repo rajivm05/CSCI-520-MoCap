@@ -131,9 +131,10 @@ void RenderGroundPlane(double groundPlaneSize, double groundPlaneHeight, double 
   glEnable(GL_POLYGON_OFFSET_FILL);
   glPolygonOffset(1.0,1.0);
 
-  float planeAmbient[4] = { (float)(ambientFskeleton * rPlane), (float)(ambientFskeleton * gPlane), (float)(ambientFskeleton * bPlane), 1.0f};
-  float planeDiffuse[4] = { (float)(diffuseFskeleton * rPlane), (float)(diffuseFskeleton * gPlane), (float)(diffuseFskeleton * bPlane), 1.0f};
-  float planeSpecular[4] = { (float)(specularFskeleton * rPlane), (float)(specularFskeleton * gPlane), (float)(specularFskeleton * bPlane), 1.0f};
+  float groundAlpha = 0.85f; // slightly transparent to let floor reflection show through
+  float planeAmbient[4] = { (float)(ambientFskeleton * rPlane), (float)(ambientFskeleton * gPlane), (float)(ambientFskeleton * bPlane), groundAlpha};
+  float planeDiffuse[4] = { (float)(diffuseFskeleton * rPlane), (float)(diffuseFskeleton * gPlane), (float)(diffuseFskeleton * bPlane), groundAlpha};
+  float planeSpecular[4] = { (float)(specularFskeleton * rPlane), (float)(specularFskeleton * gPlane), (float)(specularFskeleton * bPlane), groundAlpha};
   float planeShininess = (float)shininess;
   glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, planeAmbient);
   glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, planeDiffuse);
@@ -145,12 +146,11 @@ void RenderGroundPlane(double groundPlaneSize, double groundPlaneHeight, double 
   for(int i=0; i<planeResolution; i++)
     for(int j=0; j<planeResolution; j++)
     {
-      float planeAmbientAct[4] = { (float)(ambientFskeleton * rPlane), (float)(ambientFskeleton * gPlane), (float)(ambientFskeleton * bPlane), 1.0f};
+      float planeAmbientAct[4] = { (float)(ambientFskeleton * rPlane), (float)(ambientFskeleton * gPlane), (float)(ambientFskeleton * bPlane), groundAlpha};
       float factor = (((i+j) % 2) == 0) ? 0.5f : 1.0f;
       planeAmbientAct[0] *= factor;
       planeAmbientAct[1] *= factor;
       planeAmbientAct[2] *= factor;
-      planeAmbientAct[3] *= factor;
       glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, planeAmbientAct);
       glBegin(GL_QUADS);
       glVertex3f((float)(-groundPlaneSize/2 + i * planeIncrement), (float)groundPlaneHeight, (float)(-groundPlaneSize/2 + j * planeIncrement));
@@ -183,28 +183,116 @@ void cameraView(void)
 * instance of Player_Gl_Window is set to be the current context by FLTK
 * when it calls draw().
 */
-void Redisplay() 
+// Draws a fullscreen gradient quad (top color to bottom color) behind the scene
+static void DrawSkyGradient()
 {
-  /* clear image buffer to black */
-  glClearColor(1.0, 1.0, 1.0, 0);
-  glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT); /* clear image, zbuf */
+  // switch to orthographic projection to draw a screen-filling quad
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+  glLoadIdentity();
+  glOrtho(-1, 1, -1, 1, -1, 1);
 
-  glPushMatrix();  /* save current transform matrix */
+  glMatrixMode(GL_MODELVIEW);
+  glPushMatrix();
+  glLoadIdentity();
+
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_LIGHTING);
+  glDisable(GL_TEXTURE_2D);
+
+  glBegin(GL_QUADS);
+    // bottom of screen (horizon) — lighter blue-gray
+    glColor3f(0.68f, 0.78f, 0.88f);
+    glVertex2f(-1.0f, -1.0f);
+    glVertex2f( 1.0f, -1.0f);
+    // top of screen (sky) — deeper blue
+    glColor3f(0.18f, 0.27f, 0.51f);
+    glVertex2f( 1.0f,  1.0f);
+    glVertex2f(-1.0f,  1.0f);
+  glEnd();
+
+  glEnable(GL_DEPTH_TEST);
+
+  glPopMatrix();
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+  glMatrixMode(GL_MODELVIEW);
+}
+
+// Renders a vertically-flipped (mirrored) copy of the skeleton beneath the ground plane
+static void DrawFloorReflection()
+{
+  if (!displayer.GetNumSkeletons())
+    return;
+
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+  // flip the skeleton below the ground plane (Y=0): scale Y by -1
+  glPushMatrix();
+  glScalef(1.0f, -1.0f, 1.0f);
+
+  // since we flipped, polygon winding reverses — fix face culling
+  glEnable(GL_CULL_FACE);
+  glCullFace(GL_BACK);
+  glFrontFace(GL_CW);
+
+  // dim the reflection by reducing the light intensity
+  GLfloat reflAmbient[]  = {0.15f, 0.15f, 0.15f, 0.35f};
+  GLfloat reflDiffuse[]  = {0.25f, 0.25f, 0.25f, 0.35f};
+  GLfloat reflSpecular[] = {0.0f, 0.0f, 0.0f, 0.35f};
+  glLightfv(GL_LIGHT0, GL_AMBIENT,  reflAmbient);
+  glLightfv(GL_LIGHT0, GL_DIFFUSE,  reflDiffuse);
+  glLightfv(GL_LIGHT0, GL_SPECULAR, reflSpecular);
+  glLightfv(GL_LIGHT1, GL_AMBIENT,  reflAmbient);
+  glLightfv(GL_LIGHT1, GL_DIFFUSE,  reflDiffuse);
+  glLightfv(GL_LIGHT1, GL_SPECULAR, reflSpecular);
+
+  glEnable(GL_LIGHTING);
+  displayer.Render(DisplaySkeleton::BONES_ONLY);
+
+  glPopMatrix();
+
+  // restore original light properties
+  GLfloat origKa[] = {1.0f, 1.0f, 1.0f, 1.0f};
+  GLfloat origKd[] = {1.0f, 1.0f, 1.0f, 1.0f};
+  GLfloat origKs[] = {1.0f, 1.0f, 1.0f, 1.0f};
+  glLightfv(GL_LIGHT0, GL_AMBIENT,  origKa);
+  glLightfv(GL_LIGHT0, GL_DIFFUSE,  origKd);
+  glLightfv(GL_LIGHT0, GL_SPECULAR, origKs);
+  glLightfv(GL_LIGHT1, GL_AMBIENT,  origKa);
+  glLightfv(GL_LIGHT1, GL_DIFFUSE,  origKd);
+  glLightfv(GL_LIGHT1, GL_SPECULAR, origKs);
+
+  glFrontFace(GL_CCW);
+  glDisable(GL_CULL_FACE);
+  glDisable(GL_BLEND);
+}
+
+void Redisplay()
+{
+  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+  glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+
+  // draw sky gradient behind everything (screen-space, no depth write)
+  DrawSkyGradient();
+
+  glPushMatrix();
 
   cameraView();
 
-  glLineWidth(2.0);  /* we'll draw background with thick lines */
+  glLineWidth(2.0);
 
   if (renderWorldAxes == ON)
   {
     glDisable(GL_LIGHTING);
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_FOG);
-    RenderWorldAxes();  /* draw a triad in the origin of the world coordinate */
+    RenderWorldAxes();
   }
 
   if (groundPlane == ON)
-  { 
+  {
     if (useFog == ON)
     {
       glEnable(GL_FOG);
@@ -216,10 +304,16 @@ void Redisplay()
       glFogi(GL_FOG_MODE, GL_LINEAR);
     }
 
-    // draw_ground();
+    // draw the floor reflection before the ground so it appears underneath
+    DrawFloorReflection();
+
+    // draw ground plane (semi-transparent so reflection shows through)
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_LIGHTING);
     glDisable(GL_TEXTURE_2D);
     glCallList(displayListGround);
+    glDisable(GL_BLEND);
 
     glDisable(GL_LIGHTING);
     glDisable(GL_FOG);
@@ -231,14 +325,14 @@ void Redisplay()
   }
 
   // render the skeletons
-  if (displayer.GetNumSkeletons()) 
+  if (displayer.GetNumSkeletons())
   {
     glEnable(GL_LIGHTING);
     glDisable(GL_FOG);
     displayer.Render(DisplaySkeleton::BONES_AND_LOCAL_FRAMES);
   }
 
-  glPopMatrix(); // restore current transformation matrix
+  glPopMatrix();
 }
 
 void renderWorldAxes_callback(Fl_Light_Button *obj, long val) 
